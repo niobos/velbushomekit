@@ -14,7 +14,10 @@ __import__('accessories', globals(), level=1, fromlist=['*'])
 from .accessories._registry import accessory_registry
 
 
-parser = argparse.ArgumentParser(description='Velbus HomeKit bridge')
+parser = argparse.ArgumentParser(description='Velbus HomeKit bridge',
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('--persist-file', default="accessory.state",
+                    help="File to store pairing info in")
 parser.add_argument('--logfile', help="Log to the given file", type=str)
 parser.add_argument('--verbose', help="Enable verbose mode", action='store_true')
 parser.add_argument('--debug', help="Enable debug mode", action='store_true')
@@ -65,7 +68,7 @@ else:
 if len(config.get('controls', [])) == 0:
     raise ValueError("Could not find `controls` in config file")
 
-driver = pyhap.accessory_driver.AccessoryDriver()
+driver = pyhap.accessory_driver.AccessoryDriver(persist_file=args.persist_file)
 
 bridge = pyhap.accessory.Bridge(driver, 'Velbus bridge')
 driver.add_accessory(accessory=bridge)
