@@ -1,3 +1,5 @@
 HAP-python
 requests
 PyYAML
+websockets
+jsonpatch

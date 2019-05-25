@@ -1,5 +1,6 @@
 import json
 import logging
+import typing
 
 import requests
 from pyhap.accessory import Accessory
@@ -7,6 +8,7 @@ from pyhap.accessory_driver import AccessoryDriver
 import pyhap.const
 
 from ._registry import register
+from ..websocket import WebSocket
 
 
 logger = logging.getLogger(__name__)
@@ -19,12 +21,15 @@ class VelbusRelayLightBulb(Accessory):
     def __init__(
             self,
             driver: AccessoryDriver,
+            websocket: WebSocket,
             display_name: str,
             velbus_base_url: str,
-            velbus_module_address: int,
-            velbus_module_channel: int,
-            aid=None,
+            velbus_module_address: typing.List[int],
     ):
+        aid = 0
+        for a in velbus_module_address:
+            aid = aid * 256 + a
+
         super().__init__(
             driver=driver,
             display_name=display_name,
@@ -32,9 +37,21 @@ class VelbusRelayLightBulb(Accessory):
         )
 
         self.velbus_base_url = velbus_base_url
-        self.velbus_module_address = velbus_module_address
-        self.velbus_module_channel = velbus_module_channel
+        self.websocket = websocket
+
+        if len(velbus_module_address) != 2:
+            raise ValueError(f"Expected 2 address components for Relay, got {len(velbus_module_address)}")
+        self.velbus_module_address = velbus_module_address[0]
+        self.velbus_module_channel = velbus_module_address[1]
+
+        self.websocket.add_event_handler(
+            path=[f"{self.velbus_module_address:02x}", f"{self.velbus_module_channel}"],
+            cb=self.notify,
+        )
+
         self.set_info_service(
+            manufacturer="Velbus",
+            model="relay",
             serial_number=f"0x{self.velbus_module_address:02x}-{self.velbus_module_channel}"
         )
 
@@ -73,6 +90,9 @@ class VelbusRelayLightBulb(Accessory):
 
         return 1 if json.loads(resp.content) else 0
 
-    def notify(self, new_value):
+    def notify(self, state_dict: dict):
+        logger.info(f"Websocket Rx: {self.velbus_module_address}/{self.velbus_module_channel}: {state_dict!r}")
+        new_state = state_dict['relay']
+        new_state = 1 if new_state else 0
         # Push new state to Controllers
-        self.char_on.set_value(new_value)
+        self.char_on.set_value(new_state)

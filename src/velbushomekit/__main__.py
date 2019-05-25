@@ -1,5 +1,7 @@
 import argparse
+import asyncio
 import logging
+import re
 import signal
 
 import requests
@@ -8,6 +10,8 @@ import time
 import yaml
 import pyhap.accessory
 import pyhap.accessory_driver
+
+from .websocket import WebSocket
 
 __import__('accessories', globals(), level=1, fromlist=['*'])
 # ^^^ from .accessories import *    , but without polluting the namespace
@@ -60,18 +64,27 @@ if args.controls_file.startswith("http://") or \
     if resp.status_code != 200:
         raise ValueError(f"Could not fetch URL `{args.controls_file}`: {resp.reason}")
     config = resp.content.decode('utf-8')
-    config = yaml.safe_load(config)
 else:
     with open(args.controls_file, "r") as f:
-        config = yaml.safe_load(f.read())
+        config = f.read()
+
+config = yaml.safe_load(config)
 
 if len(config.get('controls', [])) == 0:
     raise ValueError("Could not find `controls` in config file")
 
-driver = pyhap.accessory_driver.AccessoryDriver(persist_file=args.persist_file)
+logger.info(f"Loaded {len(config['controls'])} controls")
+
+driver = pyhap.accessory_driver.AccessoryDriver(persist_file=args.persist_file)  # Creates a new event loop
 
 bridge = pyhap.accessory.Bridge(driver, 'Velbus bridge')
 driver.add_accessory(accessory=bridge)
+
+websocket_url = re.sub(r'^http', 'ws', args.base_url)
+websocket = WebSocket(
+    loop=driver.loop,
+    websocket_url=f"{websocket_url}/module_state",
+)
 
 for name, control in config['controls'].items():
     type_ = control['type']
@@ -84,11 +97,10 @@ for name, control in config['controls'].items():
 
     acc = cls(
         driver=driver,
+        websocket=websocket,
         display_name=name,
         velbus_base_url=args.base_url,
-        velbus_module_address=control['address'][0],
-        velbus_module_channel=control['address'][1],
-        aid=control['address'][0] * 256 + control['address'][1],  # Generate persistent AID
+        velbus_module_address=control['address'],
     )
     bridge.add_accessory(acc)
 
